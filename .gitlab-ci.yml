@@ -1,0 +1,65 @@
+# GitLab CI/CD: build -> test -> package (images to GitLab Container Registry) -> deploy (kubectl)
+stages: [build, test, package, deploy]
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI: "-B --no-transfer-progress"
+
+default:
+  image: maven:3.9-eclipse-temurin-17
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths: [.m2/repository]
+
+build:
+  stage: build
+  script: mvn $MAVEN_CLI -DskipTests package
+  artifacts: { paths: ["*/target/*.jar"], expire_in: 1 day }
+
+unit-tests:
+  stage: test
+  script: mvn $MAVEN_CLI verify
+  artifacts:
+    when: always
+    reports: { junit: "*/target/surefire-reports/TEST-*.xml" }
+
+package-image:
+  stage: package
+  image: { name: gcr.io/kaniko-project/executor:debug, entrypoint: [""] }
+  cache: {}
+  parallel:
+    matrix:
+      - SERVICE: [api-gateway, user-service, order-service, payment-service, notification-service]
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile Dockerfile --build-arg SERVICE=$SERVICE
+        --destination "$CI_REGISTRY_IMAGE/$SERVICE:$CI_COMMIT_SHORT_SHA"
+  rules: [{ if: '$CI_COMMIT_BRANCH == "main"' }]
+
+.deploy:
+  image: { name: alpine/k8s:1.30.2, entrypoint: [""] }   # contains kubectl + kustomize + aws-cli
+  cache: {}
+  script:
+    - aws eks update-kubeconfig --name $EKS_CLUSTER --region $AWS_REGION   # creds via masked CI/CD variables or OIDC
+    - cd k8s
+    - for s in api-gateway user-service order-service payment-service notification-service; do
+        kustomize edit set image REGISTRY/shop/$s=$CI_REGISTRY_IMAGE/$s:$CI_COMMIT_SHORT_SHA; done
+    - kubectl apply -k . -n $K8S_NAMESPACE
+    - for s in api-gateway user-service order-service payment-service notification-service; do
+        kubectl rollout status deployment/$s -n $K8S_NAMESPACE --timeout=300s || { kubectl rollout undo deployment/$s -n $K8S_NAMESPACE; exit 1; }; done
+
+deploy-staging:
+  extends: .deploy
+  stage: deploy
+  variables: { K8S_NAMESPACE: staging }
+  environment: { name: staging }
+  rules: [{ if: '$CI_COMMIT_BRANCH == "main"' }]
+
+deploy-prod:
+  extends: .deploy
+  stage: deploy
+  variables: { K8S_NAMESPACE: prod }
+  environment: { name: production }
+  when: manual                  # human approval gate
+  rules: [{ if: '$CI_COMMIT_BRANCH == "main"' }]

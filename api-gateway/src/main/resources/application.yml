@@ -1,0 +1,53 @@
+server:
+  port: 8080
+  shutdown: graceful
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+  cloud:
+    gateway:
+      default-filters:
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: 20
+            redis-rate-limiter.burstCapacity: 40
+            key-resolver: "#{@ipKeyResolver}"
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 10s
+      routes:
+        # lb:// => Eureka (docker-compose/local). In Kubernetes set *_SERVICE_URI=http://<k8s-service>:<port>
+        - id: user-service
+          uri: ${USER_SERVICE_URI:lb://user-service}
+          predicates: [ "Path=/api/auth/**,/api/users/**" ]
+        - id: order-service
+          uri: ${ORDER_SERVICE_URI:lb://order-service}
+          predicates: [ "Path=/api/orders/**" ]
+        - id: payment-service
+          uri: ${PAYMENT_SERVICE_URI:lb://payment-service}
+          predicates: [ "Path=/api/payments/**" ]
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URI:lb://notification-service}
+          predicates: [ "Path=/api/notifications/**" ]
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-secret-change-me-in-prod-0123456789abcdef}
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true

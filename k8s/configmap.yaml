@@ -1,0 +1,20 @@
+# Non-secret configuration. In AWS the endpoints point to managed services: RDS, MSK, ElastiCache, Amazon MQ.
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: shop-config }
+data:
+  SPRING_PROFILES_ACTIVE: "json"
+  EUREKA_CLIENT_ENABLED: "false"            # Kubernetes DNS + Services replace Eureka
+  KAFKA_BOOTSTRAP: "b-1.shop.xxxx.kafka.ap-south-1.amazonaws.com:9092"
+  REDIS_HOST: "shop-redis.xxxx.cache.amazonaws.com"
+  RABBIT_HOST: "b-xxxx.mq.ap-south-1.amazonaws.com"
+  USER_SERVICE_URI: "http://user-service:8081"
+  ORDER_SERVICE_URI: "http://order-service:8082"
+  PAYMENT_SERVICE_URI: "http://payment-service:8083"
+  NOTIFICATION_SERVICE_URI: "http://notification-service:8084"
+  USER_SERVICE_URL: "http://user-service:8081"
+  BOOTSTRAP_ADMIN: "false"
+  user-service_DB_URL: "jdbc:postgresql://shop-db.xxxx.rds.amazonaws.com:5432/userdb"
+  order-service_DB_URL: "jdbc:postgresql://shop-db.xxxx.rds.amazonaws.com:5432/orderdb"
+  payment-service_DB_URL: "jdbc:postgresql://shop-db.xxxx.rds.amazonaws.com:5432/paymentdb"
+  notification-service_DB_URL: "jdbc:postgresql://shop-db.xxxx.rds.amazonaws.com:5432/notificationdb"

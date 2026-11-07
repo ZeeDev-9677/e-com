@@ -1,0 +1,52 @@
+{
+  "info": { "name": "Shop Microservices", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "orderId", "value": "" }
+  ],
+  "item": [
+    { "name": "1. Register",
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/api/auth/register",
+        "body": { "mode": "raw", "raw": "{\"email\":\"ann@example.com\",\"password\":\"Passw0rd!123\",\"fullName\":\"Ann Roy\"}" } } },
+    { "name": "2. Login (saves token)",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('200', () => pm.response.to.have.status(200));",
+        "pm.collectionVariables.set('token', pm.response.json().accessToken);" ] } }],
+      "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/api/auth/login",
+        "body": { "mode": "raw", "raw": "{\"email\":\"ann@example.com\",\"password\":\"Passw0rd!123\"}" } } },
+    { "name": "3. Me",
+      "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "url": "{{baseUrl}}/api/users/me" } },
+    { "name": "4. Create order (idempotent)",
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('201', () => pm.response.to.have.status(201));",
+        "pm.collectionVariables.set('orderId', pm.response.json().id);" ] } }],
+      "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Idempotency-Key", "value": "demo-key-1" }],
+        "url": "{{baseUrl}}/api/orders",
+        "body": { "mode": "raw", "raw": "{\"items\":[{\"sku\":\"BOOK-1\",\"quantity\":2,\"unitPrice\":499.00}]}" } } },
+    { "name": "5. Get order (wait ~2s: should be CONFIRMED)",
+      "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "url": "{{baseUrl}}/api/orders/{{orderId}}" } },
+    { "name": "6. Payment for order",
+      "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "url": "{{baseUrl}}/api/payments/order/{{orderId}}" } },
+    { "name": "7. My notifications",
+      "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "url": "{{baseUrl}}/api/notifications/me" } },
+    { "name": "8. Order summary (DB function)",
+      "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "url": "{{baseUrl}}/api/orders/summary" } },
+    { "name": "9. Failing payment (amount > 100000 => order CANCELLED)",
+      "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/api/orders",
+        "body": { "mode": "raw", "raw": "{\"items\":[{\"sku\":\"TV-9\",\"quantity\":1,\"unitPrice\":250000.00}]}" } } },
+    { "name": "10. RBAC check: list users as normal user => 403",
+      "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}" }] },
+        "url": "{{baseUrl}}/api/users" } }
+  ]
+}

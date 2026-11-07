@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: payment-service, labels: { app: payment-service } }
+spec:
+  replicas: 2
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }   # zero-downtime rollout
+  selector: { matchLabels: { app: payment-service } }
+  template:
+    metadata:
+      labels: { app: payment-service }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8083", prometheus.io/path: "/actuator/prometheus" }
+    spec:
+      terminationGracePeriodSeconds: 45          # > spring graceful shutdown (30s)
+      securityContext: { runAsNonRoot: true, runAsUser: 999 }
+      containers:
+        - name: payment-service
+          image: REGISTRY/shop/payment-service:latest         # replaced by 'kustomize edit set image' in CI
+          ports: [ { containerPort: 8083 } ]
+          envFrom:
+            - configMapRef: { name: shop-config }
+            - secretRef: { name: shop-secrets }
+          env:
+            - name: DB_URL
+              valueFrom: { configMapKeyRef: { name: shop-config, key: payment-service_DB_URL, optional: true } }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 768Mi }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8083 }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:                          # restart if the JVM is wedged
+            httpGet: { path: /actuator/health/liveness, port: 8083 }
+            periodSeconds: 10
+          readinessProbe:                         # remove from Service while not ready (e.g. DB down)
+            httpGet: { path: /actuator/health/readiness, port: 8083 }
+            periodSeconds: 5
+          securityContext: { allowPrivilegeEscalation: false }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payment-service }
+spec:
+  selector: { app: payment-service }
+  ports: [ { port: 8083, targetPort: 8083 } ]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: payment-service }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: payment-service }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: payment-service }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app: payment-service } }

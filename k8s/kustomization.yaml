@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - configmap.yaml
+  - services/api-gateway.yaml
+  - services/user-service.yaml
+  - services/order-service.yaml
+  - services/payment-service.yaml
+  - services/notification-service.yaml
+  - ingress.yaml
+images:
+  - name: REGISTRY/shop/api-gateway
+  - name: REGISTRY/shop/user-service
+  - name: REGISTRY/shop/order-service
+  - name: REGISTRY/shop/payment-service
+  - name: REGISTRY/shop/notification-service
